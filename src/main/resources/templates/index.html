@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Blockchain Explorer</title>
+</head>
+<body>
+<h1>Blockchain</h1>
+<div th:each="block : ${blocks}">
+    <h3>Bloco #[[${block.index}]]</h3>
+    <p>Hash: [[${block.hash}]]</p>
+    <ul>
+        <li th:each="tx : ${block.transactions}">
+            [[${tx.sender}]] → [[${tx.receiver}]]: [[${tx.amount}]]
+        </li>
+    </ul>
+</div>
+</body>
+</html>

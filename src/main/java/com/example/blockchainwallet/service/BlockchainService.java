@@ -1,7 +1,8 @@
 package com.example.blockchainwallet.service;
 
-import com.example.blockchainwallet.domain.Block;
+import com.example.blockchainwallet.domain.BlockEntity;
 import com.example.blockchainwallet.domain.Transaction;
+import com.example.blockchainwallet.repository.BlockRepository;
 import com.example.blockchainwallet.util.CryptoUtil;
 import org.springframework.stereotype.Service;
 import java.util.ArrayList;
@@ -9,92 +10,120 @@ import java.util.List;
 
 @Service
 public class BlockchainService {
-    private List<Block> blockchain = new ArrayList<>();
+
+    private final BlockRepository blockRepository;
+    private final BalanceService balanceService;
+
+    private List<BlockEntity> blockchain = new ArrayList<>();
     private List<Transaction> pendingTransactions = new ArrayList<>();
-    private int difficulty = 4; // Dificuldade do Proof of Work (ex: hash deve começar com "0000")
+    private final int difficulty = 4;
+    private static final double MINER_REWARD = 10.0;
 
-    // Construtor: cria o bloco genesis
-    public BlockchainService() {
-        blockchain.add(createGenesisBlock());
+    public BlockchainService(BlockRepository blockRepository, BalanceService balanceService) {
+        this.blockRepository = blockRepository;
+        this.balanceService = balanceService;
+        createGenesisBlock();
     }
 
-    private Block createGenesisBlock() {
-        return new Block(0, "0", System.currentTimeMillis(), new ArrayList<>(), 0, "genesis-hash");
+    private void createGenesisBlock() {
+        List<Transaction> genesisTransactions = new ArrayList<>();
+        BlockEntity genesis = new BlockEntity(
+                0,
+                "0",
+                System.currentTimeMillis(),
+                genesisTransactions,
+                0,
+                CryptoUtil.sha256("genesis-block")
+        );
+        blockchain.add(genesis);
+        blockRepository.save(genesis);
     }
 
-    // Minera um novo bloco (Proof of Work)
-    public Block mineBlock() {
-        Block lastBlock = blockchain.get(blockchain.size() - 1);
+    public BlockEntity mineBlock(String minerAddress) {
+        BlockEntity lastBlock = blockchain.get(blockchain.size() - 1);
+
+        // Adiciona recompensa ao minerador
+        addMinerReward(minerAddress);
+
         int nonce = 0;
         String hash;
         String target = new String(new char[difficulty]).replace('\0', '0');
 
-        // loop do PoW:
         do {
             nonce++;
-            hash = CryptoUtil.sha256(
-                    lastBlock.index() +
-                            lastBlock.previousHash() +
-                            lastBlock.timestamp() +
-                            pendingTransactions.toString() +
-                            nonce
-            );
-        } while (!hash.substring(0, difficulty).equals(target));
+            hash = calculateBlockHash(lastBlock, nonce);
+        } while (!hash.startsWith(target));
 
-        Block newBlock = new Block(
-                lastBlock.index() + 1,
-                lastBlock.hash(),
+        BlockEntity newBlock = new BlockEntity(
+                lastBlock.getIndex() + 1,
+                lastBlock.getHash(),
                 System.currentTimeMillis(),
-                pendingTransactions,
+                new ArrayList<>(pendingTransactions),
                 nonce,
                 hash
         );
 
         blockchain.add(newBlock);
-        pendingTransactions = new ArrayList<>(); // Limpa transações pendentes
+        blockRepository.save(newBlock);
+        balanceService.updateBalances(pendingTransactions);
+        pendingTransactions.clear();
+
         return newBlock;
     }
 
-    // Valida a integridade do blockchain
-    public boolean isChainValid() {
-        // Verifica o bloco genesis
-        Block genesis = blockchain.get(0);
-        if (!genesis.hash().equals("genesis-hash") || genesis.index() != 0) {
-            return false;
+    private String calculateBlockHash(BlockEntity previousBlock, int nonce) {
+        return CryptoUtil.sha256(
+                previousBlock.getIndex() +
+                        previousBlock.getPreviousHash() +
+                        previousBlock.getTimestamp() +
+                        pendingTransactions.toString() +
+                        nonce
+        );
+    }
+
+    private void addMinerReward(String minerAddress) {
+        Transaction reward = new Transaction(
+                "system",
+                minerAddress,
+                MINER_REWARD,
+                "miner-reward-signature"
+        );
+        pendingTransactions.add(reward);
+    }
+
+    public void addTransaction(Transaction transaction) {
+        if (!transaction.sender().equals("system")) {
+            double balance = balanceService.getBalance(transaction.sender());
+            if (balance < transaction.amount()) {
+                throw new IllegalArgumentException("Saldo insuficiente");
+            }
         }
+        pendingTransactions.add(transaction);
+    }
 
-        // Verifica os demais blocos
+    public boolean isChainValid() {
         for (int i = 1; i < blockchain.size(); i++) {
-            Block currentBlock = blockchain.get(i);
-            Block previousBlock = blockchain.get(i - 1);
+            BlockEntity currentBlock = blockchain.get(i);
+            BlockEntity previousBlock = blockchain.get(i - 1);
 
-            // Valida o hash do bloco atual
-            String calculatedHash = currentBlock.calculateHash();
-            if (!currentBlock.hash().equals(calculatedHash)) {
+            String calculatedHash = calculateBlockHash(previousBlock, currentBlock.getNonce());
+            if (!currentBlock.getHash().equals(calculatedHash)) {
                 return false;
             }
 
-            // Valida a referência ao bloco anterior
-            if (!currentBlock.previousHash().equals(previousBlock.hash())) {
+            if (!currentBlock.getPreviousHash().equals(previousBlock.getHash())) {
                 return false;
             }
 
-            // Valida o Proof of Work (hash começa com zeros)
-            String target = new String(new char[difficulty]).replace('\0', '0');
-            if (!currentBlock.hash().substring(0, difficulty).equals(target)) {
+            if (!currentBlock.getHash().substring(0, difficulty).equals(
+                    new String(new char[difficulty]).replace('\0', '0'))) {
                 return false;
             }
         }
         return true;
     }
 
-    // Adiciona uma transação à lista pendente
-    public void addTransaction(Transaction transaction) {
-        pendingTransactions.add(transaction);
-    }
-
-    // Getters
-    public List<Block> getBlockchain() {
-        return blockchain;
+    public List<BlockEntity> getBlockchain() {
+        return new ArrayList<>(blockchain);
     }
 }

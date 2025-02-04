@@ -1,6 +1,6 @@
 package com.example.blockchainwallet.controller;
 
-import com.example.blockchainwallet.domain.Block;
+import com.example.blockchainwallet.domain.BlockEntity;
 import com.example.blockchainwallet.domain.Transaction;
 import com.example.blockchainwallet.domain.Wallet;
 import com.example.blockchainwallet.service.BlockchainService;
@@ -37,13 +37,13 @@ public class BlockchainController {
 
     // Retorna a cadeia de blocos
     @GetMapping("/blocks")
-    public List<Block> getBlocks() {
+    public List<BlockEntity> getBlocks() {
         return blockchainService.getBlockchain();
     }
 
     // Mina um novo bloco
-    @PostMapping("/mine")
-    public Block mineBlock() {
-        return blockchainService.mineBlock();
+    @PostMapping("/mine/{minerAddress}")
+    public BlockEntity mineBlock(@PathVariable String minerAddress) {
+        return blockchainService.mineBlock(minerAddress);
     }
 }
